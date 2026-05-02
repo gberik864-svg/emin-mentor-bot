@@ -14,9 +14,9 @@ load_dotenv()
 
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 GROQ_KEY = os.getenv("GROQ_API_KEY")
-
 if not TOKEN or not GROQ_KEY:
-    raise Exception("❌ Ошибка .env файла")
+    print("Missing ENV variables")
+    exit()
 
 # ================= GROQ =================
 client = Groq(api_key=GROQ_KEY)
