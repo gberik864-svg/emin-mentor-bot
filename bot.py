@@ -185,6 +185,8 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     os.remove(path)
 
 # ================= MAIN =================
+import asyncio
+
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
@@ -192,8 +194,8 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
 
-    print("✅ Groq Bot запущен")
-    app.run_polling()
+    print("Bot started")
 
+    asyncio.run(app.run_polling())
 if __name__ == "__main__":
     main()
