@@ -26,7 +26,7 @@ client = Groq(api_key=GROQ_KEY)
 def ask_ai(prompt):
     try:
         response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",  # ✅ FIXED MODEL
+            model="llama-3.3-70b-versatile",
             messages=[
                 {
                     "role": "system",
@@ -59,7 +59,6 @@ def get_motivation():
         "💡 Верь в себя и двигайся вперёд!"
     )
 
-# 🔥 UPDATED ONLY "О ПРОЕКТЕ"
 def project_text():
     return (
         "AI-ментор по обучению и трудоустройству для людей с инвалидностью.\n\n"
@@ -82,7 +81,7 @@ def training_text():
         "📌 Делай акцент на результатах"
     )
 
-# ================= START (UPDATED) =================
+# ================= START =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 Добро пожаловать!\n\n"
@@ -110,7 +109,6 @@ def check_resume(text):
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text or ""
 
-    # ===== ОБУЧЕНИЕ (НЕ ТРОГАЕМ) =====
     if text == "🎓 Обучение":
         video_path = "object.mp4"
 
@@ -123,7 +121,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Видео файл не найден")
         return
 
-    # ===== РЕЗЮМЕ (НЕ ТРОГАЕМ) =====
     if text == "💼 Резюме":
         await update.message.reply_text(
             "📄 Создайте резюме здесь:\n"
@@ -132,17 +129,14 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # ===== МОТИВАЦИЯ (НЕ ТРОГАЕМ) =====
     if text == "💬 Мотивация":
         await update.message.reply_text(get_motivation())
         return
 
-    # ===== О ПРОЕКТЕ (UPDATED) =====
     if text == "ℹ️ О проекте":
         await update.message.reply_text(project_text())
         return
 
-    # ===== AI CHAT =====
     response = ask_ai(text)
     await update.message.reply_text(response)
 
@@ -185,8 +179,6 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     os.remove(path)
 
 # ================= MAIN =================
-import asyncio
-
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
@@ -196,6 +188,7 @@ def main():
 
     print("Bot started")
 
-    asyncio.run(app.run_polling())
+    app.run_polling()
+
 if __name__ == "__main__":
     main()
