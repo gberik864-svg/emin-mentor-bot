@@ -1,196 +1,479 @@
 import os
 import tempfile
-from openai import OpenAI
 import requests
+
 from dotenv import load_dotenv
 
 from groq import Groq
+from openai import OpenAI
 
 from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters
+)
 
 from PyPDF2 import PdfReader
 
+
 # ================= ENV =================
+
 load_dotenv()
 
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 GROQ_KEY = os.getenv("GROQ_API_KEY")
-print("TOKEN =", TOKEN)
-print("GROQ =", GROQ_KEY)
+OPENAI_KEY = os.getenv("OPENAI_API_KEY")
+
+
 if not TOKEN or not GROQ_KEY:
     print("Missing ENV variables")
     exit()
 
-# ================= GROQ =================
-client = Groq(api_key=GROQ_KEY)
 
-def ask_ai(prompt):
-    try:
-        response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "Ты помощник по работе, обучению и резюме."
-                },
-                {"role": "user", "content": prompt}
-            ]
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        return f"❌ AI ошибка: {e}"
+# ================= AI =================
 
-# ================= MENU =================
-MENU = ReplyKeyboardMarkup(
-    [
-        ["🎓 Обучение", "💼 Резюме"],
-        ["💬 Мотивация"],
-        ["ℹ️ О проекте"]
-    ],
-    resize_keyboard=True
+client = Groq(
+    api_key=GROQ_KEY
 )
 
+
+openai_client = OpenAI(
+    api_key=OPENAI_KEY
+)
+
+
+
+def ask_ai(prompt):
+
+    try:
+
+        response = client.chat.completions.create(
+
+            model="llama-3.3-70b-versatile",
+
+            messages=[
+                {
+                    "role":"system",
+                    "content":
+                    "Ты помощник по работе, обучению и резюме."
+                },
+                {
+                    "role":"user",
+                    "content":prompt
+                }
+            ]
+        )
+
+
+        return response.choices[0].message.content
+
+
+    except Exception as e:
+
+        return f"❌ AI ошибка: {e}"
+
+
+
+# ================= MENU =================
+
+
+MENU = ReplyKeyboardMarkup(
+
+[
+["🎓 Обучение", "💼 Резюме"],
+["🎤 Голосовой помощник", "🔎 Вакансии"],
+["🖼 CV Фото"],
+["💬 Мотивация"],
+["ℹ️ О проекте"]
+
+],
+
+resize_keyboard=True
+
+)
+
+
+
 # ================= TEXT =================
+
+
 def get_motivation():
+
     return (
-        "✨ Твои возможности не ограничиваются обстоятельствами.\n"
-        "📚 Образование — это твой инструмент свободы.\n"
-        "🚀 Каждый новый навык — это шаг к независимости и уверенности в себе.\n"
-        "⏳ Не важно, с какой скоростью ты идёшь — важно, что ты не останавливаешься.\n\n"
-        "💡 Верь в себя и двигайся вперёд!"
+        "✨ Ваши возможности не ограничиваются обстоятельствами.\n\n"
+        "📚 Обучение — путь к развитию.\n"
+        "🚀 Каждый новый навык приближает к цели.\n\n"
+        "💪 Верьте в себя!"
     )
+
+
 
 def project_text():
+
     return (
-        "AI-ментор по обучению и трудоустройству для людей с инвалидностью.\n\n"
-        "Проект создан для помощи людям в профессиональном развитии.\n\n"
-        "Основные возможности:\n"
+        "🤖 AI-ментор по обучению и трудоустройству.\n\n"
+        "Возможности:\n"
         "• анализ резюме\n"
-        "• ответы на вопросы\n"
-        "• помощь в обучении\n"
-        "• карьерные советы\n\n"
-        "Цель проекта — сопровождение пользователя от обучения до трудоустройства."
+        "• голосовой помощник\n"
+        "• поиск вакансий\n"
+        "• подготовка CV фото\n\n"
+        "Цель — помочь пользователю найти путь к работе."
     )
+
+
 
 def training_text():
+
     return (
-        "🎓 Как правильно составить резюме:\n\n"
-        "1. Кратко и по делу\n"
-        "2. Укажи реальные навыки\n"
-        "3. Добавь опыт работы\n"
-        "4. Избегай лишнего текста\n\n"
-        "📌 Делай акцент на результатах"
+        "🎓 Как сделать хорошее резюме:\n\n"
+        "1. Укажите навыки\n"
+        "2. Добавьте опыт\n"
+        "3. Пишите кратко\n"
+        "4. Покажите результаты"
     )
 
+
+
 # ================= START =================
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+
+async def start(update: Update, context):
+
     await update.message.reply_text(
+
         "👋 Добро пожаловать!\n\n"
-        "🤖 AI-ментор по обучению и трудоустройству для людей с инвалидностью.",
+        "🤖 AI-ментор по обучению и трудоустройству",
+
         reply_markup=MENU
     )
 
-# ================= RESUME =================
-def check_resume(text):
-    return ask_ai(
-        f"""
-        Проанализируй резюме:
 
-        {text}
 
-        Дай:
-        1. Ошибки
-        2. Улучшения
-        3. Оценку (0-100)
-        4. Совет
-        """
-    )
+# ================= VOICE =================
 
-# ================= HANDLER =================
-async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text or ""
 
-    if text == "🎓 Обучение":
-        video_path = "object.mp4"
+async def voice_handler(update, context):
 
-        if os.path.exists(video_path):
-            await update.message.reply_video(
-                video=open(video_path, "rb"),
-                caption=training_text()
-            )
-        else:
-            await update.message.reply_text("❌ Видео файл не найден")
-        return
+    voice = update.message.voice
 
-    if text == "💼 Резюме":
-        await update.message.reply_text(
-            "📄 Создайте резюме здесь:\n"
-            "https://www.jobseeker.com\n\n"
-            "📤 Затем отправьте PDF — я проверю его 🤖"
-        )
-        return
+    file = await voice.get_file()
 
-    if text == "💬 Мотивация":
-        await update.message.reply_text(get_motivation())
-        return
-
-    if text == "ℹ️ О проекте":
-        await update.message.reply_text(project_text())
-        return
-
-    response = ask_ai(text)
-    await update.message.reply_text(response)
-
-# ================= PDF =================
-async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    doc = update.message.document
-
-    if not doc.file_name.endswith(".pdf"):
-        await update.message.reply_text("❌ Отправьте только PDF файл")
-        return
-
-    file = await doc.get_file()
-
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-    path = tmp.name
-    tmp.close()
+    path = "voice.ogg"
 
     await file.download_to_drive(path)
 
-    try:
-        reader = PdfReader(path)
-        text = ""
 
-        for page in reader.pages:
-            text += page.extract_text() or ""
+    text = openai_client.audio.transcriptions.create(
 
-    except:
-        await update.message.reply_text("❌ Ошибка чтения PDF")
-        return
+        model="whisper-1",
 
-    if not text.strip():
-        await update.message.reply_text("❌ PDF файл пуст")
-        return
+        file=open(path,"rb")
 
-    await update.message.reply_text("🤖 Анализирую резюме...")
+    )
 
-    result = check_resume(text)
+
+    answer = ask_ai(text.text)
+
+
+
+    audio = openai_client.audio.speech.create(
+
+        model="gpt-4o-mini-tts",
+
+        voice="alloy",
+
+        input=answer
+
+    )
+
+
+    audio.stream_to_file(
+        "answer.mp3"
+    )
+
+
+    await update.message.reply_voice(
+
+        voice=open(
+            "answer.mp3",
+            "rb"
+        )
+
+    )
+
+
+
+# ================= JOBS =================
+
+
+async def jobs(update, context):
+
+
+    url = "https://api.hh.ru/vacancies"
+
+
+    params = {
+
+        "text":
+        "удаленная работа гибкий график",
+
+        "per_page":5
+    }
+
+
+    data = requests.get(
+
+        url,
+        params=params
+
+    ).json()
+
+
+
+    result = "🔎 Подходящие вакансии:\n\n"
+
+
+
+    for item in data["items"]:
+
+        result += (
+
+            "💼 "
+            + item["name"]
+            + "\n"
+            + item["alternate_url"]
+            + "\n\n"
+
+        )
+
+
     await update.message.reply_text(result)
 
-    os.remove(path)
+
+
+
+
+# ================= PHOTO =================
+
+
+async def photo_handler(update, context):
+
+    await update.message.reply_text(
+
+        "🖼 Отправьте ваше фото.\n\n"
+        "AI подготовит профессиональный портрет для резюме."
+
+    )
+
+
+
+# ================= RESUME =================
+
+
+def check_resume(text):
+
+    return ask_ai(
+
+f"""
+Проанализируй резюме:
+
+{text}
+
+Дай:
+
+1. Ошибки
+2. Улучшения
+3. Оценку от 0 до 100
+4. Совет
+"""
+
+    )
+
+
+
+# ================= TEXT =================
+
+
+async def handle(update, context):
+
+    text = update.message.text or ""
+
+
+
+    if text == "🎓 Обучение":
+
+        await update.message.reply_text(
+            training_text()
+        )
+        return
+
+
+
+    if text == "💼 Резюме":
+
+        await update.message.reply_text(
+            "📄 Отправьте PDF резюме для анализа."
+        )
+        return
+
+
+
+    if text == "🎤 Голосовой помощник":
+
+        await update.message.reply_text(
+            "🎤 Отправьте голосовое сообщение."
+        )
+        return
+
+
+
+    if text == "🔎 Вакансии":
+
+        await jobs(update, context)
+        return
+
+
+
+    if text == "🖼 CV Фото":
+
+        await photo_handler(update, context)
+        return
+
+
+
+    if text == "💬 Мотивация":
+
+        await update.message.reply_text(
+            get_motivation()
+        )
+        return
+
+
+
+    if text == "ℹ️ О проекте":
+
+        await update.message.reply_text(
+            project_text()
+        )
+        return
+
+
+
+    answer = ask_ai(text)
+
+    await update.message.reply_text(answer)
+
+
+
+# ================= PDF =================
+
+
+async def handle_file(update, context):
+
+    doc = update.message.document
+
+
+    if not doc.file_name.endswith(".pdf"):
+
+        return
+
+
+    file = await doc.get_file()
+
+
+    tmp = tempfile.NamedTemporaryFile(
+        delete=False,
+        suffix=".pdf"
+    )
+
+
+    path = tmp.name
+
+    tmp.close()
+
+
+
+    await file.download_to_drive(path)
+
+
+
+    reader = PdfReader(path)
+
+
+    text = ""
+
+
+    for page in reader.pages:
+
+        text += page.extract_text() or ""
+
+
+
+    result = check_resume(text)
+
+
+
+    await update.message.reply_text(result)
+
+
 
 # ================= MAIN =================
+
+
 def main():
+
     app = ApplicationBuilder().token(TOKEN).build()
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
-    app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
+
+
+    app.add_handler(
+        CommandHandler(
+            "start",
+            start
+        )
+    )
+
+
+    app.add_handler(
+
+        MessageHandler(
+            filters.VOICE,
+            voice_handler
+        )
+
+    )
+
+
+    app.add_handler(
+
+        MessageHandler(
+            filters.Document.ALL,
+            handle_file
+        )
+
+    )
+
+
+    app.add_handler(
+
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            handle
+        )
+
+    )
+
 
     print("Bot started")
 
+
     app.run_polling()
 
+
+
 if __name__ == "__main__":
+
     main()
