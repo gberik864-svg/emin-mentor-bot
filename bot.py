@@ -1,6 +1,8 @@
 import os
 import tempfile
 from dotenv import load_dotenv
+from voice import voice_handler
+from vacancy import get_vacancies
 
 from groq import Groq
 
