@@ -1,6 +1,7 @@
 import os
 import tempfile
 from dotenv import load_dotenv
+
 from voice import voice_handler
 from vacancy import get_vacancies
 
@@ -86,6 +87,7 @@ MENU = ReplyKeyboardMarkup(
 
     [
         ["🎓 Обучение", "💼 Резюме"],
+        ["💼 Вакансии"],
         ["💬 Мотивация"],
         ["ℹ️ О проекте"]
     ],
@@ -93,6 +95,7 @@ MENU = ReplyKeyboardMarkup(
     resize_keyboard=True
 
 )
+
 
 
 
@@ -119,13 +122,13 @@ def project_text():
 
         "AI-ментор по обучению и трудоустройству для людей с инвалидностью.\n\n"
 
-        "Проект создан для помощи людям в профессиональном развитии.\n\n"
-
         "Основные возможности:\n"
         "• анализ резюме\n"
         "• ответы на вопросы\n"
         "• помощь в обучении\n"
-        "• карьерные советы\n\n"
+        "• карьерные советы\n"
+        "• поиск вакансий\n"
+        "• голосовой помощник\n\n"
 
         "Цель проекта — сопровождение пользователя от обучения до трудоустройства."
 
@@ -157,7 +160,7 @@ async def start(update: Update, context):
     await update.message.reply_text(
 
         "👋 Добро пожаловать!\n\n"
-        "🤖 AI-ментор по обучению и трудоустройству для людей с инвалидностью.",
+        "🤖 AI-ментор по обучению и трудоустройству.",
 
         reply_markup=MENU
 
@@ -229,190 +232,26 @@ async def handle(update: Update, context):
 
 
 
+    if text == "💼 Вакансии":
+
+        await update.message.reply_text(
+
+            get_vacancies()
+
+        )
+
+        return
+
+
+
+
     if text == "💼 Резюме":
 
         await update.message.reply_text(
 
-            "📄 Создайте резюме здесь:\n"
-            "https://www.jobseeker.com\n\n"
+            "📄 Создайте резюме\n\n"
             "📤 Затем отправьте PDF — я проверю его 🤖"
 
         )
 
         return
-
-
-
-
-    if text == "💬 Мотивация":
-
-        await update.message.reply_text(
-            get_motivation()
-        )
-
-        return
-
-
-
-
-    if text == "ℹ️ О проекте":
-
-        await update.message.reply_text(
-            project_text()
-        )
-
-        return
-
-
-
-
-    response = ask_ai(text)
-
-
-    await update.message.reply_text(response)
-
-
-
-
-# ================= PDF =================
-
-
-async def handle_file(update: Update, context):
-
-    doc = update.message.document
-
-
-    if not doc.file_name.endswith(".pdf"):
-
-        await update.message.reply_text(
-            "❌ Отправьте только PDF файл"
-        )
-
-        return
-
-
-
-    file = await doc.get_file()
-
-
-
-    tmp = tempfile.NamedTemporaryFile(
-        delete=False,
-        suffix=".pdf"
-    )
-
-
-    path = tmp.name
-
-    tmp.close()
-
-
-
-    await file.download_to_drive(path)
-
-
-
-
-    try:
-
-        reader = PdfReader(path)
-
-        text = ""
-
-
-        for page in reader.pages:
-
-            text += page.extract_text() or ""
-
-
-    except:
-
-        await update.message.reply_text(
-            "❌ Ошибка чтения PDF"
-        )
-
-        return
-
-
-
-
-    if not text.strip():
-
-        await update.message.reply_text(
-            "❌ PDF файл пуст"
-        )
-
-        return
-
-
-
-
-    await update.message.reply_text(
-        "🤖 Анализирую резюме..."
-    )
-
-
-
-    result = check_resume(text)
-
-
-    await update.message.reply_text(result)
-
-
-
-    os.remove(path)
-
-
-
-
-# ================= MAIN =================
-
-
-def main():
-
-    app = ApplicationBuilder().token(TOKEN).build()
-
-
-
-    app.add_handler(
-        CommandHandler(
-            "start",
-            start
-        )
-    )
-
-
-
-    app.add_handler(
-
-        MessageHandler(
-            filters.TEXT & ~filters.COMMAND,
-            handle
-        )
-
-    )
-
-
-
-    app.add_handler(
-
-        MessageHandler(
-            filters.Document.ALL,
-            handle_file
-        )
-
-    )
-
-
-
-    print("Bot started")
-
-
-    app.run_polling()
-
-
-
-
-if __name__ == "__main__":
-
-    main()
