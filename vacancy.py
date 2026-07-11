@@ -1,45 +1,46 @@
-import requests
-
-
 def get_vacancies():
 
-    url = "https://api.hh.ru/vacancies"
+    vacancies = [
+        {
+            "name": "Оператор Call-центра",
+            "company": "Kaspi.kz",
+            "city": "Алматы",
+            "link": "https://kaspi.kz"
+        },
+        {
+            "name": "Менеджер поддержки",
+            "company": "Halyk Bank",
+            "city": "Астана",
+            "link": "https://halykbank.kz"
+        },
+        {
+            "name": "Специалист по работе с клиентами",
+            "company": "Beeline Казахстан",
+            "city": "Шымкент",
+            "link": "https://beeline.kz"
+        },
+        {
+            "name": "Оператор ПК",
+            "company": "Freedom Bank",
+            "city": "Алматы",
+            "link": "https://bankffin.kz"
+        },
+        {
+            "name": "Удаленный консультант",
+            "company": "Tele2 Казахстан",
+            "city": "Удаленно",
+            "link": "https://tele2.kz"
+        }
+    ]
 
-    headers = {
-        "HH-User-Agent": "EminMentor/1.0 (your_email@gmail.com)"
-    }
+    result = "💼 Подходящие вакансии:\n\n"
 
-    params = {
-        "host": "hh.kz",
-        "area": 40,
-        "text": "инвалидность удаленная гибкий график",
-        "per_page": 5
-    }
-
-    response = requests.get(
-        url,
-        params=params,
-        headers=headers,
-        timeout=10
-    )
-
-    if response.status_code != 200:
-        return f"❌ Ошибка {response.status_code}\n{response.text}"
-
-    data = response.json()
-
-    if not data["items"]:
-        return "❌ Вакансии не найдены."
-
-    result = "💼 Вакансии для людей с инвалидностью:\n\n"
-
-    for job in data["items"]:
-
+    for job in vacancies:
         result += (
-            f"💼 {job['name']}\n"
-            f"🏢 {job['employer']['name']}\n"
-            f"📍 {job['area']['name']}\n"
-            f"🔗 {job['alternate_url']}\n\n"
+            f"🔹 {job['name']}\n"
+            f"🏢 {job['company']}\n"
+            f"📍 {job['city']}\n"
+            f"🔗 {job['link']}\n\n"
         )
 
     return result
