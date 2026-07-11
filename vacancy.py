@@ -5,14 +5,14 @@ def get_vacancies():
     url = "https://api.hh.ru/vacancies"
 
     params = {
-        "text": '(удаленная OR "гибкий график" OR инвалидность)',
+        "text": "удаленная работа",
         "per_page": 5
     }
 
     response = requests.get(url, params=params)
 
     if response.status_code != 200:
-        return "❌ Не удалось получить вакансии."
+        return f"❌ Ошибка {response.status_code}\n{response.text}"
 
     data = response.json()
 
