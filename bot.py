@@ -1,6 +1,7 @@
 import os
 import tempfile
 from dotenv import load_dotenv
+from vacancy import get_vacancies
 
 from groq import Groq
 
@@ -78,22 +79,14 @@ def ask_ai(prompt):
 
 
 # ================= MENU =================
-
-
 MENU = ReplyKeyboardMarkup(
-
     [
         ["🎓 Обучение", "💼 Резюме"],
-        ["💬 Мотивация"],
+        ["🔎 Вакансии", "💬 Мотивация"],
         ["ℹ️ О проекте"]
     ],
-
     resize_keyboard=True
-
 )
-
-
-
 # ================= TEXT =================
 
 
@@ -239,7 +232,16 @@ async def handle(update: Update, context):
 
         return
 
+    if text == "🔎 Вакансии":
+        await update.message.reply_text(
+            "🔎 Ищу подходящие вакансии..."
+        )
 
+        result = get_vacancies()
+
+        await update.message.reply_text(result)
+
+        return
 
 
     if text == "💬 Мотивация":
