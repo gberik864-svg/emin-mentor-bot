@@ -1,6 +1,5 @@
 from gtts import gTTS
 
-
 async def voice_handler(update, context):
 
     voice = update.message.voice
@@ -11,11 +10,7 @@ async def voice_handler(update, context):
 
     await file.download_to_drive(path)
 
-
-    await update.message.reply_text(
-        "🎤 Голос получен"
-    )
-
+    await update.message.reply_text("🎤 Голос получен")
 
     tts = gTTS(
         text="Ваш голос принят",
@@ -23,7 +18,6 @@ async def voice_handler(update, context):
     )
 
     tts.save("answer.mp3")
-
 
     await update.message.reply_voice(
         voice=open("answer.mp3","rb")
