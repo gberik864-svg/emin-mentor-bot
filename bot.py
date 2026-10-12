@@ -908,10 +908,9 @@ async def handle_voice(
 
     except Exception as e:
 
-        print(
-            "Voice error:",
-            repr(e)
-        )
+        import traceback
+        traceback.print_exc()
+        print("Voice error:", repr(e), flush=True)
 
         error_text = str(e)
 
@@ -1170,10 +1169,9 @@ resume or professional profile.
 
     except Exception as e:
 
-        print(
-            "Resume photo error:",
-            repr(e)
-        )
+        import traceback
+        traceback.print_exc()
+        print("Resume photo error:", repr(e), flush=True)
 
         error_text = str(e)
 
