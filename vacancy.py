@@ -1,223 +1,156 @@
+
+import logging
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from urllib.parse import urljoin, urlparse
+
 import requests
-
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin
 
+logger = logging.getLogger(__name__)
 
-# ==================================================
-# SETTINGS
-# ==================================================
+# ================= ENBEK.KZ =================
 
 ENBEK_BASE_URL = "https://www.enbek.kz"
 ENBEK_SEARCH_URL = "https://www.enbek.kz/ru/search/vacancy"
 
-HH_API_URL = "https://api.hh.ru/vacancies"
-
 HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/154.0 Safari/537.36"
-    ),
+    "User-Agent": "Mozilla/5.0 (compatible; EminMentor/1.1)",
+    "Accept": "text/html,application/xhtml+xml",
     "Accept-Language": "ru-RU,ru;q=0.9",
 }
 
+# ================= FILTERS =================
 
-# ==================================================
-# CLEAN TEXT
-# ==================================================
+SEARCH_WORDS = {
+    "all": [""],
+    "youth": [
+        "без опыта",
+        "стажер",
+        "студент",
+    ],
+    "accessible": [
+        "инвалидность",
+        "для лиц с инвалидностью",
+    ],
+    "remote": [
+        "удаленная работа",
+        "дистанционная работа",
+    ],
+    "flexible": [
+        "гибкий график",
+        "неполный рабочий день",
+    ],
+}
 
-def clean_text(text):
 
-    if not text:
-        return ""
+def clean_text(value):
+    return " ".join(str(value or "").split())
 
-    return " ".join(
-        text.split()
+
+def extract_field(text, label, next_labels):
+    """
+    Enbek бетінен нақты өрісті бөліп алу.
+    """
+    boundaries = "|".join(
+        re.escape(item) for item in next_labels
     )
 
-
-# ==================================================
-# HH SALARY
-# ==================================================
-
-def format_hh_salary(salary):
-
-    if not salary:
-        return "Не указана"
-
-    salary_from = salary.get("from")
-    salary_to = salary.get("to")
-    currency = salary.get(
-        "currency",
-        ""
+    pattern = (
+        rf"{re.escape(label)}\s*[:\-]?\s*(.*?)"
+        rf"(?=\s*(?:{boundaries})\b|$)"
     )
 
-    if currency == "KZT":
-        currency = "₸"
+    match = re.search(
+        pattern,
+        text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
 
-    if salary_from and salary_to:
+    if match:
+        return clean_text(match.group(1))
 
-        return (
-            f"{salary_from:,} – "
-            f"{salary_to:,} "
-            f"{currency}"
-        ).replace(",", " ")
-
-    if salary_from:
-
-        return (
-            f"от {salary_from:,} "
-            f"{currency}"
-        ).replace(",", " ")
-
-    if salary_to:
-
-        return (
-            f"до {salary_to:,} "
-            f"{currency}"
-        ).replace(",", " ")
-
-    return "Не указана"
+    return ""
 
 
-# ==================================================
-# ENBEK SEARCH
-# ==================================================
+def matches_filter(job, filter_type):
+    if filter_type == "all":
+        return True
 
-def get_enbek_vacancies(
-    filter_type="all",
-    limit=5
-):
+    name = str(job.get("name") or "").lower()
+    schedule = str(job.get("schedule") or "").lower()
+    employment = str(job.get("employment") or "").lower()
+    experience = str(job.get("experience") or "").lower()
+    description = str(job.get("description") or "").lower()
 
-    try:
+    if filter_type == "remote":
+        remote_words = [
+            "дистанцион",
+            "удален",
+            "удалён",
+            "надомн",
+            "remote",
+        ]
 
-        response = requests.get(
-            ENBEK_SEARCH_URL,
-            headers=HEADERS,
-            timeout=20,
+        return any(
+            word in (employment + " " + schedule)
+            for word in remote_words
         )
 
-        print(
-            "Enbek status:",
-            response.status_code
+    if filter_type == "flexible":
+        flexible_words = [
+            "гибкий",
+            "неполный",
+            "частичная",
+            "посменный",
+            "сменный",
+        ]
+
+        return any(
+            word in (employment + " " + schedule)
+            for word in flexible_words
         )
 
-        if response.status_code != 200:
+    if filter_type == "youth":
+        youth_words = [
+            "без опыта",
+            "опыт не требуется",
+            "стажер",
+            "стажёр",
+            "стажировка",
+            "студент",
+            "начинающий",
+        ]
 
-            print(
-                "Enbek error:",
-                response.text[:300]
-            )
-
-            return []
-
-        soup = BeautifulSoup(
-            response.text,
-            "html.parser"
+        combined = (
+            name + " " + experience + " " + description
         )
 
-        vacancy_links = []
-
-        # ==================================================
-        # FIND REAL VACANCY LINKS
-        # ==================================================
-
-        for a in soup.find_all(
-            "a",
-            href=True
-        ):
-
-            href = a.get(
-                "href",
-                ""
-            )
-
-            if "/ru/vacancy/" not in href:
-                continue
-
-            if "pdf" in href.lower():
-                continue
-
-            full_url = urljoin(
-                ENBEK_BASE_URL,
-                href
-            )
-
-            if full_url not in vacancy_links:
-
-                vacancy_links.append(
-                    full_url
-                )
-
-        print(
-            "Enbek links found:",
-            len(vacancy_links)
+        return any(
+            word in combined
+            for word in youth_words
         )
 
-        vacancies = []
+    if filter_type == "accessible":
+        accessible_words = [
+            "для лиц с инвалидностью",
+            "для людей с инвалидностью",
+            "для инвалидов",
+            "рабочее место для инвалидов",
+        ]
 
-        # ==================================================
-        # PARSE VACANCIES
-        # ==================================================
-
-        for url in vacancy_links[:40]:
-
-            job = parse_enbek_vacancy(
-                url
-            )
-
-            if not job:
-                continue
-
-            if not matches_filter(
-                job,
-                filter_type
-            ):
-                continue
-
-            vacancies.append(
-                job
-            )
-
-            if len(vacancies) >= limit:
-                break
-
-        print(
-            "Enbek vacancies:",
-            len(vacancies)
+        return any(
+            word in description
+            for word in accessible_words
         )
 
-        return vacancies
-
-    except requests.RequestException as e:
-
-        print(
-            "Enbek request error:",
-            e
-        )
-
-        return []
-
-    except Exception as e:
-
-        print(
-            "Enbek error:",
-            e
-        )
-
-        return []
+    return True
 
 
-# ==================================================
-# PARSE ONE ENBEK VACANCY
-# ==================================================
+# ================= PARSE VACANCY =================
 
 def parse_enbek_vacancy(url):
-
     try:
-
         response = requests.get(
             url,
             headers=HEADERS,
@@ -225,885 +158,333 @@ def parse_enbek_vacancy(url):
         )
 
         if response.status_code != 200:
-
-            print(
-                "Vacancy status:",
-                response.status_code
+            logger.warning(
+                "Enbek vacancy status: %s",
+                response.status_code,
             )
-
             return None
 
         soup = BeautifulSoup(
             response.text,
-            "html.parser"
+            "html.parser",
         )
 
-        text = clean_text(
-            soup.get_text(
-                " ",
-                strip=True
-            )
-        )
+        title_tag = soup.find("h1") or soup.find("h4")
 
-        if not text:
+        if not title_tag:
             return None
 
-        lower_text = text.lower()
-
-        # ==================================================
-        # TITLE
-        # ==================================================
-
-        title = ""
-
-        h1 = soup.find("h1")
-
-        if h1:
-
-            value = clean_text(
-                h1.get_text(
-                    " ",
-                    strip=True
-                )
-            )
-
-            if value:
-                title = value
-
-        if not title:
-
-            h4 = soup.find("h4")
-
-            if h4:
-
-                value = clean_text(
-                    h4.get_text(
-                        " ",
-                        strip=True
-                    )
-                )
-
-                if value:
-                    title = value
-
-        if not title:
-
-            title_tag = soup.find(
-                "title"
-            )
-
-            if title_tag:
-
-                value = clean_text(
-                    title_tag.get_text()
-                )
-
-                if value:
-                    title = value
-
-        if not title:
-
-            title = "Вакансия Enbek"
-
-        # ==================================================
-        # CLEAN TITLE
-        # ==================================================
-
-        title = re.sub(
-            r"\s*[-|]\s*Enbek.*$",
-            "",
-            title,
-            flags=re.IGNORECASE
-        )
-
         title = clean_text(
-            title
+            title_tag.get_text(" ", strip=True)
         )
 
-        # ==================================================
-        # COMPANY
-        # ==================================================
+        if not title:
+            return None
 
-        company = "Работодатель Enbek"
+        text = clean_text(
+            soup.get_text(" ", strip=True)
+        )
 
-        company_link = soup.find(
+        # Компания
+        company = "Компания не указана"
+
+        company_tag = soup.find(
             "a",
-            href=lambda x:
-            x and (
-                "/company/" in x
-                or "/employer/" in x
-            )
+            href=lambda href: href and (
+                "/company/" in href
+                or "/employer/" in href
+            ),
         )
 
-        if company_link:
+        if company_tag:
+            company = clean_text(
+                company_tag.get_text(" ", strip=True)
+            ) or company
 
-            value = clean_text(
-                company_link.get_text(
-                    " ",
-                    strip=True
-                )
+        if company == "Компания не указана":
+            company_match = re.search(
+                r"от\s+("
+                r"Товарищество с ограниченной ответственностью"
+                r'\s*["«][^"»]+["»]'
+                r"|Индивидуальный предприниматель"
+                r"\s+[^,]+"
+                r")",
+                text,
+                flags=re.IGNORECASE,
             )
 
-            if value:
+            if company_match:
+                company = clean_text(
+                    company_match.group(1)
+                )
 
-                company = value
-
-        # ==================================================
-        # REGION
-        # ==================================================
-
+        # Қала
         city = "Казахстан"
 
-        region_patterns = [
-
-            (
-                r"Регион\s*[:\-]?\s*"
-                r"(.+?)"
-                r"(?="
-                r"Обучитесь|"
-                r"Заработная плата|"
-                r"Зарплата|"
-                r"График|"
-                r"Режим работы|"
-                r"Опыт работы|"
-                r"Опыт|"
-                r"Образование|"
-                r"Требования|"
-                r"Условия труда|"
-                r"Профессиональные навыки|"
-                r"Вакансия опубликована|"
-                r"Опубликовано|"
-                r"$)"
-            ),
-
-            (
-                r"Место работы\s*[:\-]?\s*"
-                r"(.+?)"
-                r"(?="
-                r"Заработная плата|"
-                r"Зарплата|"
-                r"График|"
-                r"Опыт|"
-                r"Образование|"
-                r"$)"
-            ),
-        ]
-
-        for pattern in region_patterns:
-
-            match = re.search(
-                pattern,
-                text,
-                re.IGNORECASE
-            )
-
-            if match:
-
-                value = clean_text(
-                    match.group(1)
-                )
-
-                if value:
-
-                    city = value[:150]
-
-                break
-
-        # ==================================================
-        # REMOVE SKILLS ENBEK TEXT FROM REGION
-        # ==================================================
-
-        cleanup_words = [
-            "Обучитесь новым навыкам",
-            "Skills Enbek",
-            "Ваш сертификат",
-        ]
-
-        for word in cleanup_words:
-
-            if word.lower() in city.lower():
-
-                position = city.lower().find(
-                    word.lower()
-                )
-
-                city = city[:position]
-
-        city = clean_text(
-            city
+        city_match = re.search(
+            r"Регион\s+(.{2,100}?)"
+            r"(?=\s+Место работы\b|$)",
+            text,
+            flags=re.IGNORECASE,
         )
 
-        if not city:
-            city = "Казахстан"
+        if city_match:
+            city = clean_text(
+                city_match.group(1)
+            )[:100]
+        else:
+            city_match = re.search(
+                r"\bв\s+(Астане|Алматы|Шымкенте|"
+                r"Таразе|Караганде|Актобе|"
+                r"Павлодаре|Костанае)\b",
+                text,
+                flags=re.IGNORECASE,
+            )
 
-        # ==================================================
-        # SALARY
-        # ==================================================
+            if city_match:
+                city = city_match.group(1)
 
+        # Жалақы
         salary = "Не указана"
 
-        salary_patterns = [
+        salary_match = re.search(
+            r"(?:от\s*)?\d[\d\s]*"
+            r"(?:[-–]\s*\d[\d\s]*)?"
+            r"\s*(?:тенге|тг\.?|₸)",
+            text,
+            flags=re.IGNORECASE,
+        )
 
-            (
-                r"от\s+[\d\s]+"
-                r"\s+до\s+[\d\s]+"
-                r"\s*(?:тенге|тг\.?)"
-            ),
-
-            (
-                r"от\s+[\d\s]+"
-                r"\s*(?:тенге|тг\.?)"
-            ),
-
-            (
-                r"до\s+[\d\s]+"
-                r"\s*(?:тенге|тг\.?)"
-            ),
-
-            (
-                r"[\d\s]+"
-                r"\s*[-–]\s*"
-                r"[\d\s]+"
-                r"\s*(?:тенге|тг\.?)"
-            ),
-        ]
-
-        for pattern in salary_patterns:
-
-            match = re.search(
-                pattern,
-                text,
-                re.IGNORECASE
+        if salary_match:
+            salary = clean_text(
+                salary_match.group(0)
             )
 
-            if match:
+        # Жұмыс түрі
+        employment = extract_field(
+            text,
+            "Тип занятости",
+            [
+                "График работы",
+                "Условия труда",
+                "Стажировка",
+                "Опыт работы",
+            ],
+        )
 
-                salary = clean_text(
-                    match.group(0)
-                )
-
-                break
-
-        # ==================================================
-        # SCHEDULE
-        # ==================================================
-
-        schedule = "Не указан"
-
-        schedules = [
-            "Полный рабочий день",
-            "Неполный рабочий день",
-            "Неполная рабочая неделя",
-            "Гибкий график",
-            "Вахтовый метод",
-            "Посменный",
-            "Дистанционная работа",
-            "Удалённая работа",
-            "Удаленная работа",
-            "Надомная работа",
-        ]
-
-        for item in schedules:
-
-            if item.lower() in lower_text:
-
-                schedule = item
-                break
-
-        # ==================================================
-        # EXPERIENCE
-        # ==================================================
-
-        experience = ""
-
-        # First check no experience
-        if (
-            "опыт не требуется"
-            in lower_text
-        ):
-
-            experience = (
-                "Опыт не требуется"
-            )
-
-        elif "без опыта" in lower_text:
-
-            experience = (
-                "Без опыта"
-            )
-
-        else:
-
-            experience_patterns = [
-
-                (
-                    r"Опыт работы\s*[:\-]?\s*"
-                    r"(.+?)"
-                    r"(?="
-                    r"Образование|"
-                    r"Профессиональные навыки|"
-                    r"Требования|"
-                    r"Условия труда|"
-                    r"График|"
-                    r"Режим работы|"
-                    r"Вакансия опубликована|"
-                    r"Опубликовано|"
-                    r"$)"
-                ),
-
-                (
-                    r"Опыт\s*[:\-]?\s*"
-                    r"(.+?)"
-                    r"(?="
-                    r"Образование|"
-                    r"Профессиональные навыки|"
-                    r"Требования|"
-                    r"Условия труда|"
-                    r"График|"
-                    r"Вакансия опубликована|"
-                    r"Опубликовано|"
-                    r"$)"
-                ),
-            ]
-
-            for pattern in experience_patterns:
-
-                match = re.search(
-                    pattern,
-                    text,
-                    re.IGNORECASE
-                )
-
-                if match:
-
-                    value = clean_text(
-                        match.group(1)
-                    )
-
-                    if value:
-
-                        experience = value[:80]
-
-                    break
-
-        # ==================================================
-        # CLEAN EXPERIENCE
-        # ==================================================
-
-        if experience:
-
-            stop_words = [
+        # Жұмыс кестесі
+        schedule = extract_field(
+            text,
+            "График работы",
+            [
+                "Условия труда",
+                "Стажировка",
+                "Опыт работы",
                 "Образование",
-                "Техническое и профессиональное",
-                "Профессиональные навыки",
-                "Опубликовано",
-            ]
+            ],
+        )
 
-            for word in stop_words:
+        if not schedule:
+            schedule = "Не указан"
 
-                position = (
-                    experience.lower()
-                    .find(word.lower())
-                )
+        # Тәжірибе
+        experience = extract_field(
+            text,
+            "Опыт работы",
+            [
+                "Образование",
+                "Рабочих мест",
+                "Обязанности",
+            ],
+        )
 
-                if position != -1:
-
-                    experience = (
-                        experience[:position]
-                    )
-
-            experience = clean_text(
-                experience
-            )
-
-        # ==================================================
-        # PUBLISHED DATE
-        # ==================================================
-
+        # Жарияланған күні
         published = ""
 
-        date_patterns = [
+        date_match = re.search(
+            r"Вакансия опубликована\s+"
+            r"(\d{2}\.\d{2}\.\d{4})",
+            text,
+            flags=re.IGNORECASE,
+        )
 
-            (
-                r"Вакансия опубликована"
-                r"\s*[:\-]?\s*"
-                r"(\d{2}\.\d{2}\.\d{4})"
-            ),
-
-            (
-                r"Опубликовано"
-                r"\s*[:\-]?\s*"
-                r"(\d{2}\.\d{2}\.\d{4})"
-            ),
-        ]
-
-        for pattern in date_patterns:
-
-            match = re.search(
-                pattern,
-                text,
-                re.IGNORECASE
-            )
-
-            if match:
-
-                published = (
-                    match.group(1)
-                )
-
-                break
-
-        # ==================================================
-        # DESCRIPTION
-        # Used only for filters
-        # ==================================================
-
-        description = text[:5000]
-
-        # ==================================================
-        # RESULT
-        # ==================================================
+        if date_match:
+            published = date_match.group(1)
 
         return {
-
-            "name":
-                title,
-
-            "company":
-                company,
-
-            "city":
-                city,
-
-            "salary":
-                salary,
-
-            "schedule":
-                schedule,
-
-            "experience":
-                experience,
-
-            "published":
-                published,
-
-            "description":
-                description,
-
-            "source":
-                "Enbek.kz",
-
-            "link":
-                url,
+            "name": title,
+            "company": company,
+            "city": city,
+            "salary": salary,
+            "schedule": schedule,
+            "experience": experience,
+            "published": published,
+            "description": text[:5000],
+            "employment": employment,
+            "source": "Enbek.kz",
+            "link": url,
         }
 
-    except Exception as e:
-
-        print(
-            "Enbek vacancy parse error:",
-            e
+    except requests.RequestException as error:
+        logger.warning(
+            "Enbek request error: %s",
+            error,
         )
 
-        return None
-
-
-# ==================================================
-# FILTERS
-# ==================================================
-
-def matches_filter(
-    job,
-    filter_type
-):
-
-    if filter_type == "all":
-        return True
-
-    text = (
-        f"{job.get('name', '')} "
-        f"{job.get('schedule', '')} "
-        f"{job.get('experience', '')} "
-        f"{job.get('description', '')}"
-    ).lower()
-
-    # ==================================================
-    # YOUTH
-    # ==================================================
-
-    if filter_type == "youth":
-
-        keywords = [
-            "без опыта",
-            "опыт не требуется",
-            "молодеж",
-            "молодёж",
-            "студент",
-            "стажер",
-            "стажёр",
-            "стажировка",
-            "начинающий специалист",
-            "от 14 лет",
-        ]
-
-        return any(
-            word in text
-            for word in keywords
+    except Exception as error:
+        logger.exception(
+            "Enbek parsing error: %s",
+            error,
         )
 
-    # ==================================================
-    # ACCESSIBLE
-    # ==================================================
-
-    if filter_type == "accessible":
-
-        keywords = [
-            "для лиц с инвалидностью",
-            "лица с инвалидностью",
-            "лиц с инвалидностью",
-            "инвалидность",
-            "инвалид",
-            "доступная среда",
-            "особые потребности",
-        ]
-
-        return any(
-            word in text
-            for word in keywords
-        )
-
-    # ==================================================
-    # REMOTE
-    # ==================================================
-
-    if filter_type == "remote":
-
-        keywords = [
-            "удаленная работа",
-            "удалённая работа",
-            "удаленно",
-            "удалённо",
-            "дистанционная работа",
-            "дистанционно",
-            "надомная работа",
-        ]
-
-        return any(
-            word in text
-            for word in keywords
-        )
-
-    # ==================================================
-    # FLEXIBLE
-    # ==================================================
-
-    if filter_type == "flexible":
-
-        keywords = [
-            "гибкий график",
-            "неполный рабочий день",
-            "неполная рабочая неделя",
-            "сменный график",
-            "посменный",
-            "вахтовый метод",
-        ]
-
-        return any(
-            word in text
-            for word in keywords
-        )
-
-    return True
+    return None
 
 
-# ==================================================
-# HH.KZ
-# ==================================================
+# ================= SEARCH VACANCIES =================
 
-def get_hh_vacancies(
-    search_text="",
+def get_enbek_vacancies(
     filter_type="all",
-    limit=5
+    limit=10,
 ):
+    result = []
+    seen_links = set()
+    links = []
 
-    params = {
-        "area": 40,
-        "host": "hh.kz",
-        "locale": "RU",
-        "per_page": limit,
-        "page": 0,
-        "order_by": "publication_time",
-    }
+    queries = SEARCH_WORDS.get(
+        filter_type,
+        [""],
+    )
 
-    # ==================================================
-    # FILTER SEARCH
-    # ==================================================
+    for word in queries:
+        try:
+            params = {}
 
-    if filter_type == "youth":
+            if word:
+                params["search"] = word
 
-        search_text = (
-            f"{search_text} без опыта"
-        ).strip()
-
-    elif filter_type == "remote":
-
-        search_text = (
-            f"{search_text} удаленная работа"
-        ).strip()
-
-    elif filter_type == "flexible":
-
-        search_text = (
-            f"{search_text} гибкий график"
-        ).strip()
-
-    elif filter_type == "accessible":
-
-        search_text = (
-            f"{search_text} инвалидность"
-        ).strip()
-
-    if search_text:
-
-        params["text"] = (
-            search_text
-        )
-
-    hh_headers = {
-        "User-Agent":
-            "EminAskerovBot/1.0",
-
-        "HH-User-Agent":
-            "EminAskerovBot/1.0",
-    }
-
-    try:
-
-        response = requests.get(
-            HH_API_URL,
-            params=params,
-            headers=hh_headers,
-            timeout=15,
-        )
-
-        print(
-            "HH status:",
-            response.status_code
-        )
-
-        # ==================================================
-        # HH BLOCKED
-        # ==================================================
-
-        if response.status_code == 403:
+            response = requests.get(
+                ENBEK_SEARCH_URL,
+                params=params,
+                headers=HEADERS,
+                timeout=20,
+            )
 
             print(
-                "HH blocked: "
-                "403 Forbidden"
+                "Enbek status:",
+                response.status_code,
+                "query:",
+                word,
+                flush=True,
             )
 
-            return []
-
-        if response.status_code != 200:
-
-            print(
-                "HH error status:",
-                response.status_code
-            )
-
-            return []
-
-        data = response.json()
-
-        vacancies = []
-
-        # ==================================================
-        # HH ITEMS
-        # ==================================================
-
-        for item in data.get(
-            "items",
-            []
-        ):
-
-            employer = (
-                item.get("employer")
-                or {}
-            )
-
-            area = (
-                item.get("area")
-                or {}
-            )
-
-            schedule = (
-                item.get("schedule")
-                or {}
-            )
-
-            experience = (
-                item.get("experience")
-                or {}
-            )
-
-            link = item.get(
-                "alternate_url"
-            )
-
-            if not link:
+            if response.status_code != 200:
                 continue
 
-            vacancy = {
-
-                "name":
-                    item.get(
-                        "name",
-                        "Без названия"
-                    ),
-
-                "company":
-                    employer.get(
-                        "name",
-                        "Компания не указана"
-                    ),
-
-                "city":
-                    area.get(
-                        "name",
-                        "Казахстан"
-                    ),
-
-                "salary":
-                    format_hh_salary(
-                        item.get("salary")
-                    ),
-
-                "schedule":
-                    schedule.get(
-                        "name",
-                        "Не указан"
-                    ),
-
-                "experience":
-                    experience.get(
-                        "name",
-                        ""
-                    ),
-
-                "published":
-                    item.get(
-                        "published_at",
-                        ""
-                    ),
-
-                "description":
-                    "",
-
-                "source":
-                    "HH.kz",
-
-                "link":
-                    link,
-            }
-
-            vacancies.append(
-                vacancy
+            soup = BeautifulSoup(
+                response.text,
+                "html.parser",
             )
 
-        print(
-            "HH vacancies:",
-            len(vacancies)
-        )
+            count = 0
 
-        return vacancies
+            for tag in soup.find_all("a", href=True):
+                href = tag.get("href", "")
 
-    except requests.RequestException as e:
+                if "/ru/vacancy/" not in href:
+                    continue
 
-        print(
-            "HH request error:",
-            e
-        )
+                url = urljoin(
+                    ENBEK_BASE_URL,
+                    href,
+                )
 
-        return []
+                parsed = urlparse(url)
 
-    except Exception as e:
+                if parsed.netloc not in (
+                    "enbek.kz",
+                    "www.enbek.kz",
+                ):
+                    continue
 
-        print(
-            "HH error:",
-            e
-        )
+                if url in seen_links:
+                    continue
 
-        return []
+                seen_links.add(url)
+                links.append(url)
+                count += 1
+
+            print(
+                "Enbek links:",
+                count,
+                flush=True,
+            )
+
+        except requests.RequestException as error:
+            logger.warning(
+                "Enbek search error: %s",
+                error,
+            )
+
+    # Бір уақытта бірнеше вакансияны тексеру
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = {
+            executor.submit(
+                parse_enbek_vacancy,
+                url,
+            ): url
+            for url in links[:40]
+        }
+
+        for future in as_completed(futures):
+            try:
+                job = future.result()
+
+                if not job:
+                    continue
+
+                if not matches_filter(
+                    job,
+                    filter_type,
+                ):
+                    continue
+
+                result.append(job)
+
+                if len(result) >= limit:
+                    break
+
+            except Exception as error:
+                logger.warning(
+                    "Vacancy worker error: %s",
+                    error,
+                )
+
+    return result[:limit]
 
 
-# ==================================================
-# GET VACANCIES
-# ==================================================
+# ================= MAIN FUNCTION =================
 
 def get_vacancies(
     search_text="",
-    filter_type="all"
+    filter_type="all",
 ):
+    """
+    bot.py қолданатын негізгі функция.
+    Тек Enbek.kz нәтижелерін қайтарады.
+    """
 
-    result = []
+    if filter_type not in SEARCH_WORDS:
+        filter_type = "all"
 
-    # ==================================================
-    # ENBEK
-    # ==================================================
-
-    enbek_jobs = get_enbek_vacancies(
+    vacancies = get_enbek_vacancies(
         filter_type=filter_type,
-        limit=5,
+        limit=10,
     )
-
-    result.extend(
-        enbek_jobs
-    )
-
-    # ==================================================
-    # HH
-    # ==================================================
-
-    hh_jobs = get_hh_vacancies(
-        search_text=search_text,
-        filter_type=filter_type,
-        limit=5,
-    )
-
-    result.extend(
-        hh_jobs
-    )
-
-    # ==================================================
-    # REMOVE DUPLICATES
-    # ==================================================
-
-    unique = []
-
-    used_links = set()
-
-    for job in result:
-
-        link = job.get(
-            "link"
-        )
-
-        if not link:
-            continue
-
-        if link in used_links:
-            continue
-
-        used_links.add(
-            link
-        )
-
-        unique.append(
-            job
-        )
 
     print(
-        "Total real vacancies:",
-        len(unique)
+        "Enbek vacancies:",
+        len(vacancies),
+        flush=True,
     )
 
-    return unique[:10]
+    return vacancies
